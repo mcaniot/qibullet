@@ -1,32 +1,35 @@
 # with some extra arg parsing
-import tensorflow as tf
 from tensorflow import keras
 from datetime import datetime
-from keras.models import Sequential, Model # The Sequential model is a sequential, feed-forward stack of layers.
-from keras.layers import Dense, Activation, Flatten, Input, merge, concatenate, Concatenate# Different types of layers
-from keras.optimizers import Adam # A special type of optimizer
+from keras.models import Sequential, Model
+from keras.layers import Dense, Activation,\
+    Flatten, Input, concatenate, Concatenate
+from keras.optimizers import Adam
 
 from rl.agents.cem import CEMAgent
 from rl.memory import EpisodeParameterMemory
 
 from rl.agents import DDPGAgent
-from rl.memory import SequentialMemory  # A first-in-first-out type of memory to do the experience replay on
-from rl.random import OrnsteinUhlenbeckProcess  # a noise process
+from rl.memory import SequentialMemory
+from rl.random import OrnsteinUhlenbeckProcess
 
 from rl.agents.dqn import DQNAgent
-from rl.policy import BoltzmannQPolicy # Instead of random actions, we tend to pick actions that have generated rewards before. As time goes on we only focus on one or two actions in each state.
-from rl.memory import SequentialMemory # A first-in-first-out type of memory to do the experience replay on
+from rl.policy import BoltzmannQPolicy
 
 from rl.agents import ContinuousDQNAgent
 
+
 def add_opts(parser):
     parser.add_argument('--model-type', type=int, default=1,
-                        help="the dense-softmax-layer model (1) or the deep network (2)")
+                        help="the dense-softmax-layer model"
+                        "(1) or the deep network (2)")
 
 
 class KerasCEMAgent(object):
     '''
-    The cross-entropy method Learning Agent as described in http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.81.6579&rep=rep1&type=pdf
+    The cross-entropy method Learning Agent as
+    described in
+    http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.81.6579&rep=rep1&type=pdf
     '''
 
     def __init__(self, opts):
@@ -58,19 +61,25 @@ class KerasCEMAgent(object):
             model.add(Activation('softmax'))
             print(model.summary())
 
-        # Finally, we configure and compile our agent. You can use every built-in Keras optimizer and
+        # Finally, we configure and compile our agent. You can use every
+        # built-in Keras optimizer and
         # even the metrics!
         memory = EpisodeParameterMemory(limit=1000, window_length=1)
 
-        self.agent = CEMAgent(model=model, nb_actions=nb_actions, memory=memory,
-                              batch_size=50, nb_steps_warmup=2000, train_interval=50, elite_frac=0.05)
+        self.agent = CEMAgent(model=model, nb_actions=nb_actions,
+                              memory=memory,
+                              batch_size=50, nb_steps_warmup=2000,
+                              train_interval=50, elite_frac=0.05)
         self.agent.compile()
 
     def train(self, env, nb_steps, visualize, verbosity):
-        # Okay, now it's time to learn something! We visualize the training here for show, but this
-        # slows down training quite a lot. You can always safely abort the training prematurely using
+        # Okay, now it's time to learn something! We visualize the training
+        # here for show, but this
+        # slows down training quite a lot. You can always safely abort the
+        # training prematurely using
         # Ctrl + C.
-        self.agent.fit(env, nb_steps=nb_steps, visualize=visualize, verbose=verbosity)
+        self.agent.fit(env, nb_steps=nb_steps, visualize=visualize,
+                       verbose=verbosity)
 
     def test(self, env, nb_episodes, visualize):
         # Finally, evaluate our algorithm for 5 episodes.
@@ -83,9 +92,11 @@ class KerasCEMAgent(object):
         # After training is done, we save the best weights.
         self.agent.save_weights(save_file, overwrite=overwrite)
 
+
 class KerasDDPGAgent(object):
     '''
-    The Deep Differential Policy Gradient Learning Agent as described in http://arxiv.org/abs/1509.02971
+    The Deep Differential Policy Gradient Learning Agent as described
+    in http://arxiv.org/abs/1509.02971
     '''
 
     def __init__(self, opts):
@@ -94,8 +105,8 @@ class KerasDDPGAgent(object):
         }
         self.opts = opts
         self.logdir = "logs/fit/" + datetime.now().strftime("%Y%m%d-%H%M%S")
-        self.tensorboard_callback = keras.callbacks.TensorBoard(log_dir=self.logdir)
-
+        self.tensorboard_callback = keras.callbacks.TensorBoard(
+            log_dir=self.logdir)
 
     def configure(self, observation_space_shape, nb_actions):
         # Next, we build a simple model.
@@ -112,7 +123,8 @@ class KerasDDPGAgent(object):
 
         # critic network
         action_input = Input(shape=(nb_actions,), name='action_input')
-        observation_input = Input(shape=(1,) + observation_space_shape, name='observation_input')
+        observation_input = Input(shape=(1,) + observation_space_shape,
+                                  name='observation_input')
         flattened_observation = Flatten()(observation_input)
         x = Dense(400)(flattened_observation)
         x = Activation('relu')(x)
@@ -124,24 +136,36 @@ class KerasDDPGAgent(object):
         critic = Model(inputs=[action_input, observation_input], outputs=x)
         print(critic.summary())
 
-        # Finally, we configure and compile our agent. You can use every built-in Keras optimizer and
+        # Finally, we configure and compile our agent. You can use every
+        # built-in Keras optimizer and
         # even the metrics!
         memory = SequentialMemory(limit=100000, window_length=1)
-        random_process = OrnsteinUhlenbeckProcess(size=nb_actions, theta=.15, mu=0., sigma=.3)
-        self.agent = DDPGAgent(nb_actions=nb_actions, actor=actor, critic=critic, critic_action_input=action_input,
-                               memory=memory, nb_steps_warmup_critic=200, nb_steps_warmup_actor=200,
-                               random_process=random_process, gamma=.99, target_model_update=1e-3)
+        random_process = OrnsteinUhlenbeckProcess(size=nb_actions,
+                                                  theta=.15, mu=0., sigma=.3)
+        self.agent = DDPGAgent(nb_actions=nb_actions, actor=actor,
+                               critic=critic, critic_action_input=action_input,
+                               memory=memory, nb_steps_warmup_critic=200,
+                               nb_steps_warmup_actor=200,
+                               random_process=random_process, gamma=.99,
+                               target_model_update=1e-3)
         self.agent.compile([Adam(lr=1e-4), Adam(lr=1e-3)], metrics=['mae'])
 
     def train(self, env, nb_steps, visualize, verbosity):
-        # Okay, now it's time to learn something! We visualize the training here for show, but this
-        # slows down training quite a lot. You can always safely abort the training prematurely using
+        # Okay, now it's time to learn something! We visualize the training
+        # here for show, but this
+        # slows down training quite a lot. You can always safely abort the
+        # training prematurely using
         # Ctrl + C.
-        self.agent.fit(env, nb_steps=nb_steps, visualize=visualize, verbose=verbosity, callbacks=[self.tensorboard_callback])
+        if nb_steps > 0:
+            self.agent.fit(env, nb_steps=nb_steps, visualize=visualize,
+                           verbose=verbosity,
+                           callbacks=[self.tensorboard_callback])
 
     def test(self, env, nb_episodes, visualize):
         # Finally, evaluate our algorithm for 5 episodes.
-        self.agent.test(env, nb_episodes=nb_episodes, visualize=visualize, nb_max_episode_steps=600)
+        if nb_episodes > 0:
+            self.agent.test(env, nb_episodes=nb_episodes,
+                            visualize=visualize, nb_max_episode_steps=600)
 
     def load_weights(self, load_file):
         self.agent.load_weights(load_file)
@@ -152,7 +176,8 @@ class KerasDDPGAgent(object):
 
 class KerasDDQNAgent(object):
     '''
-    The deep Double Q Learning Agent as described in https://arxiv.org/abs/1509.06461
+    The deep Double Q Learning Agent as described in
+    https://arxiv.org/abs/1509.06461
     '''
 
     def __init__(self, opts):
@@ -165,26 +190,28 @@ class KerasDDQNAgent(object):
     def configure(self, observation_space_shape, nb_actions):
         # Next, we build a simple model.
         model = Sequential()
-        model.add(Flatten(input_shape=(1,) + observation_space_shape))  # input layer
-        model.add(Dense(32))  # Just your regular fully connected NN layer
-        model.add(Activation('tanh'))  # tanh activation layer
-        model.add(Dense(16))  # more model capacity through fully connected NN layers
-        model.add(Activation('relu'))  # Rectified Linear Units
-        model.add(Dense(16))  # more model capacity through fully connected NN layers
-        model.add(Activation('relu'))  # Rectified Linear Units
-        model.add(Dense(nb_actions))  # fully connected NN layer with one output for each action
-        model.add(Activation('linear'))  # we want linear activations in the end
+        model.add(Flatten(input_shape=(1,) + observation_space_shape))
+        model.add(Dense(32))
+        model.add(Activation('tanh'))
+        model.add(Dense(16))
+        model.add(Activation('relu'))
+        model.add(Dense(16))
+        model.add(Activation('relu'))
+        model.add(Dense(nb_actions))
+        model.add(Activation('linear'))
         print(model.summary())
 
         memory = SequentialMemory(limit=50000, window_length=1)
         policy = BoltzmannQPolicy()
-        self.agent = DQNAgent(enable_double_dqn=True, model=model, nb_actions=nb_actions, memory=memory,
+        self.agent = DQNAgent(enable_double_dqn=True, model=model,
+                              nb_actions=nb_actions, memory=memory,
                               nb_steps_warmup=10,
                               target_model_update=1e-2, policy=policy)
         self.agent.compile(Adam(lr=1e-3), metrics=['mae'])
 
     def train(self, env, nb_steps, visualize, verbosity):
-        self.agent.fit(env, nb_steps=nb_steps, visualize=visualize, verbose=verbosity)
+        self.agent.fit(env, nb_steps=nb_steps, visualize=visualize,
+                       verbose=verbosity)
 
     def test(self, env, nb_episodes, visualize):
         self.agent.test(env, nb_episodes=nb_episodes, visualize=visualize)
@@ -198,7 +225,8 @@ class KerasDDQNAgent(object):
 
 class KerasDQNAgent(object):
     '''
-    The deep Q Learning Agent as described in https://www.cs.toronto.edu/~vmnih/docs/dqn.pdf
+    The deep Q Learning Agent as described in
+    https://www.cs.toronto.edu/~vmnih/docs/dqn.pdf
     '''
 
     def __init__(self, opts):
@@ -210,26 +238,28 @@ class KerasDQNAgent(object):
     def configure(self, observation_space_shape, nb_actions):
         # Next, we build a simple model.
         model = Sequential()
-        model.add(Flatten(input_shape=(1,) + observation_space_shape))  # input layer
-        model.add(Dense(32))  # Just your regular fully connected NN layer
-        model.add(Activation('tanh'))  # tanh activation layer
-        model.add(Dense(16))  # more model capacity through fully connected NN layers
-        model.add(Activation('relu'))  # Rectified Linear Units
-        model.add(Dense(16))  # more model capacity through fully connected NN layers
-        model.add(Activation('relu'))  # Rectified Linear Units
-        model.add(Dense(nb_actions))  # fully connected NN layer with one output for each action
-        model.add(Activation('linear'))  # we want linear activations in the end
+        model.add(Flatten(input_shape=(1,) + observation_space_shape))
+        model.add(Dense(32))
+        model.add(Activation('tanh'))
+        model.add(Dense(16))
+        model.add(Activation('relu'))
+        model.add(Dense(16))
+        model.add(Activation('relu'))
+        model.add(Dense(nb_actions))
+        model.add(Activation('linear'))
         print(model.summary())
 
         memory = SequentialMemory(limit=50000, window_length=1)
         policy = BoltzmannQPolicy()
-        self.agent = DQNAgent(enable_double_dqn=False, model=model, nb_actions=nb_actions, memory=memory,
+        self.agent = DQNAgent(enable_double_dqn=False, model=model,
+                              nb_actions=nb_actions, memory=memory,
                               nb_steps_warmup=10,
                               target_model_update=1e-2, policy=policy)
         self.agent.compile(Adam(lr=1e-3), metrics=['mae'])
 
     def train(self, env, nb_steps, visualize, verbosity):
-        self.agent.fit(env, nb_steps=nb_steps, visualize=visualize, verbose=verbosity)
+        self.agent.fit(env, nb_steps=nb_steps, visualize=visualize,
+                       verbose=verbosity)
 
     def test(self, env, nb_episodes, visualize):
         self.agent.test(env, nb_episodes=nb_episodes, visualize=visualize)
@@ -243,7 +273,8 @@ class KerasDQNAgent(object):
 
 class KerasNAFAgent(object):
     '''
-    The Normalized Advantage Functions Agent as described in https://arxiv.org/abs/1603.00748
+    The Normalized Advantage Functions Agent as described in
+    https://arxiv.org/abs/1603.00748
     '''
 
     def __init__(self, opts):
@@ -280,7 +311,8 @@ class KerasNAFAgent(object):
         print(mu_model.summary())
 
         action_input = Input(shape=(nb_actions,), name='action_input')
-        observation_input = Input(shape=(1,) + observation_space_shape, name='observation_input')
+        observation_input = Input(shape=(1,) + observation_space_shape,
+                                  name='observation_input')
         flattened_observation = Flatten()(observation_input)
         x = concatenate([action_input, flattened_observation])
         x = Dense(32)(x)
@@ -295,23 +327,31 @@ class KerasNAFAgent(object):
         L_model = Model(input=[action_input, observation_input], output=x)
         print(L_model.summary())
 
-        # Finally, we configure and compile our agent. You can use every built-in Keras optimizer and
+        # Finally, we configure and compile our agent. You can use every
+        # built-in Keras optimizer and
         # even the metrics!
         memory = SequentialMemory(limit=100000, window_length=1)
-        random_process = OrnsteinUhlenbeckProcess(theta=.15, mu=0., sigma=.3, size=nb_actions)
-        self.agent = ContinuousDQNAgent(nb_actions=nb_actions, V_model=V_model, L_model=L_model, mu_model=mu_model,
-                                        memory=memory, nb_steps_warmup=100, random_process=random_process,
+        random_process = OrnsteinUhlenbeckProcess(theta=.15, mu=0., sigma=.3,
+                                                  size=nb_actions)
+        self.agent = ContinuousDQNAgent(nb_actions=nb_actions, V_model=V_model,
+                                        L_model=L_model, mu_model=mu_model,
+                                        memory=memory, nb_steps_warmup=100,
+                                        random_process=random_process,
                                         gamma=.99, target_model_update=1e-3)
         self.agent.compile(Adam(lr=.001, clipnorm=1.), metrics=['mae'])
 
     def train(self, env, nb_steps, visualize, verbosity):
-        # Okay, now it's time to learn something! We visualize the training here for show, but this
-        # slows down training quite a lot. You can always safely abort the training prematurely using
+        # Okay, now it's time to learn something! We visualize the training
+        # here for show, but this
+        # slows down training quite a lot. You can always safely abort the
+        # training prematurely using
         # Ctrl + C.
-        self.agent.fit(env, nb_steps=nb_steps, visualize=visualize, verbose=verbosity, nb_max_episode_steps=200)
+        self.agent.fit(env, nb_steps=nb_steps, visualize=visualize,
+                       verbose=verbosity, nb_max_episode_steps=200)
 
     def test(self, env, nb_episodes, visualize):
-        self.agent.test(env, nb_episodes=nb_episodes, visualize=visualize, nb_max_episode_steps=200)
+        self.agent.test(env, nb_episodes=nb_episodes, visualize=visualize,
+                        nb_max_episode_steps=200)
 
     def load_weights(self, load_file):
         self.agent.load_weights(load_file)
@@ -323,7 +363,9 @@ class KerasNAFAgent(object):
 
 class TemplateAgent(object):
     '''
-    This is your template to copy from which an agent should fullfill. I know this is not as duck-type as possible, but helps to quickly implement new ones.
+    This is your template to copy from which an agent should fullfill.
+    I know this is not as duck-type as possible, but helps to quickly
+    implement new ones.
     '''
 
     def __init__(self, opts):
