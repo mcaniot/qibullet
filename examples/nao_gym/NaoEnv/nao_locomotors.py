@@ -114,11 +114,16 @@ class Nao(WalkerBaseQibullet):
                                     "torso",
                                     action_dim=20,
                                     obs_dim=50,
-                                    power=0.03)
+                                    power=0.030)
 
     def alive_bonus(self, z, pitch):
-        x, y, z = self.head.pose().xyz()
-        return 4 if z > 0.3 and z < 0.8 else -1
+        knees = np.array(
+            [j.current_relative_position() for j in [self.jdict["LKneePitch"],
+                                                     self.jdict["RKneePitch"]
+                                                     ]],
+            dtype=np.float32).flatten()
+        knees_at_limit = np.count_nonzero(np.abs(knees[0::2]) > 0.99)
+        return +4-knees_at_limit if z > 0.25 else -1
 
     def robot_specific_reset(self, bullet_client):
         WalkerBaseQibullet.robot_specific_reset(self, bullet_client)

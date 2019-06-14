@@ -104,7 +104,8 @@ class KerasDDPGAgent(object):
             'discrete_actions': False,
         }
         self.opts = opts
-        self.logdir = "logs/fit/" + datetime.now().strftime("%Y%m%d-%H%M%S")
+        self.logdir = "logs/DDPGAgent/" + datetime.now().strftime(
+            "%Y%m%d-%H%M%S")
         self.tensorboard_callback = keras.callbacks.TensorBoard(
             log_dir=self.logdir)
 
