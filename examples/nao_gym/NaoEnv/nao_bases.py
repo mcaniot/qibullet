@@ -98,29 +98,25 @@ class QibulletBasedRobot(XmlBasedRobot):
             joint = joint_names[i]
             position = position_values[i]
             self._p.resetJointState(
-                    self.robot_virtual.robot_model,
+                    self.robot_body.bodies[self.robot_body.bodyIndex],
                     self.robot_virtual.joint_dict[joint].getIndex(),
-                    position,
-                    physicsClientId=self.robot_virtual.getPhysicsClientId())
+                    position)
 
     def enableFsrSensor(self):
         num_joint = self._p.getNumJoints(
-            self.robot_virtual.robot_model,
-            physicsClientId=self.robot_virtual.getPhysicsClientId())
+            self.robot_body.bodies[self.robot_body.bodyIndex])
         for index in range(0, num_joint):
             joint_info = self._p.getJointInfo(
-                self.robot_virtual.robot_model,
-                index,
-                physicsClientId=self.robot_virtual.getPhysicsClientId()
+                self.robot_body.bodies[self.robot_body.bodyIndex],
+                index
             )
             if "FSR" in joint_info[1].decode('utf-8'):
                 self.fsr_index_list.append(index)
         for fsr in self.fsr_index_list:
             self._p.enableJointForceTorqueSensor(
-                self.robot_virtual.robot_model,
+                self.robot_body.bodies[self.robot_body.bodyIndex],
                 fsr,
-                True,
-                physicsClientId=self.robot_virtual.getPhysicsClientId()
+                True
             )
 
     def getFsrValue(self):
@@ -128,9 +124,8 @@ class QibulletBasedRobot(XmlBasedRobot):
         for fsr in self.fsr_index_list:
             _, _, reaction_forces, motor_torque =\
                 self._p.getJointState(
-                    self.robot_virtual.robot_model,
-                    fsr,
-                    physicsClientId=self.robot_virtual.getPhysicsClientId()
+                    self.robot_body.bodies[self.robot_body.bodyIndex],
+                    fsr
                 )
             fsr_value_list.append(reaction_forces[2])
         return fsr_value_list
@@ -140,19 +135,15 @@ class QibulletBasedRobot(XmlBasedRobot):
             (vroll, vpitch, vyaw) =\
             self._p.getLinkState(
                 self.robot_body.bodies[self.robot_body.bodyIndex],
-                self.robot_body.bodyPartIndex, computeLinkVelocity=1,
-                physicsClientId=self.robot_virtual.getPhysicsClientId())
+                self.robot_body.bodyPartIndex, computeLinkVelocity=1)
         return (vx, vy, vz), (vroll, vpitch, vyaw)
 
     def reset(self, bullet_client):
         self._p = bullet_client
         self.ordered_joints = []
-        if not self.is_loaded:
-            self.robot_virtual.loadRobot(self.basePosition,
-                                         self.baseOrientation)
-            self.is_loaded = True
-        self.resetPoseStance()
-        self.enableFsrSensor()
+        self.robot_virtual.loadRobot(self.basePosition,
+                                     self.baseOrientation,
+                                     self._p._client)
         self.parts, self.jdict, self.ordered_joints, self.robot_body =\
             self.addToScene(
                 self._p,
@@ -165,6 +156,8 @@ class QibulletBasedRobot(XmlBasedRobot):
                 del self.jdict[item]
         self.ordered_joints = self.jdict.values()
         self.robot_specific_reset(self._p)
+        self.resetPoseStance()
+        self.enableFsrSensor()
 
         s = self.calc_state()
         self.potential = self.calc_potential()
