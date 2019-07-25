@@ -114,10 +114,10 @@ class KerasDDPGAgent(object):
         # actor network
         actor = Sequential()
         actor.add(Flatten(input_shape=(1,) + observation_space_shape))
-        actor.add(Dense(400))
-        actor.add(Activation('relu'))
-        actor.add(Dense(300))
-        actor.add(Activation('relu'))
+        actor.add(Dense(64))
+        actor.add(Activation('elu'))
+        actor.add(Dense(64))
+        actor.add(Activation('elu'))
         actor.add(Dense(nb_actions))
         actor.add(Activation('tanh'))
         print(actor.summary())
@@ -127,11 +127,11 @@ class KerasDDPGAgent(object):
         observation_input = Input(shape=(1,) + observation_space_shape,
                                   name='observation_input')
         flattened_observation = Flatten()(observation_input)
-        x = Dense(400)(flattened_observation)
-        x = Activation('relu')(x)
+        x = Dense(64)(flattened_observation)
+        x = Activation('tanh')(x)
         x = Concatenate()([x, action_input])
-        x = Dense(300)(x)
-        x = Activation('relu')(x)
+        x = Dense(32)(x)
+        x = Activation('tanh')(x)
         x = Dense(1)(x)
         x = Activation('linear')(x)
         critic = Model(inputs=[action_input, observation_input], outputs=x)
@@ -165,8 +165,7 @@ class KerasDDPGAgent(object):
     def test(self, env, nb_episodes, visualize):
         # Finally, evaluate our algorithm for 5 episodes.
         if nb_episodes > 0:
-            self.agent.test(env, nb_episodes=nb_episodes,
-                            visualize=visualize, nb_max_episode_steps=600)
+            self.agent.test(env, nb_episodes=nb_episodes, visualize=visualize)
 
     def load_weights(self, load_file):
         self.agent.load_weights(load_file)
