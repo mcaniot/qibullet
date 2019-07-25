@@ -1,7 +1,4 @@
 #!/usr/bin/env python3
-import os
-import sys
-sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages')
 from baselines.common import tf_util as U
 from baselines import logger
 import NaoEnv
