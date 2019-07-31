@@ -46,6 +46,34 @@ class NaoEnv(gym.Env):
             'LAnklePitch',
             'LShoulderPitch']
 
+        self.all_joints = [
+            "HeadYaw",
+            "HeadPitch",
+            "LShoulderPitch",
+            "LShoulderRoll",
+            "LElbowYaw",
+            "LElbowRoll",
+            "LWristYaw",
+            "LHand",
+            "LHipYawPitch",
+            "LHipRoll",
+            "LHipPitch",
+            "LKneePitch",
+            "LAnklePitch",
+            "LAnkleRoll",
+            "RHipYawPitch",
+            "RHipRoll",
+            "RHipPitch",
+            "RKneePitch",
+            "RAnklePitch",
+            "RAnkleRoll",
+            "RShoulderPitch",
+            "RShoulderRoll",
+            "RElbowYaw",
+            "RElbowRoll",
+            "RWristYaw",
+            "RHand"]
+
         self.starting_position = [
             0.0,
             0.0,
@@ -144,38 +172,73 @@ class NaoEnv(gym.Env):
         self.episode_over = False
         self._resetScene()
 
-        obs = None
-        # TODO Fill and return the observation
+        obs, _ = self._getState()
         return obs
 
     def render(self, mode='human', close=False):
         pass
 
-    def _setVelocities(self, angles, velocities):
+    def _setVelocities(self, joints, velocities):
         """
         Sets velocities on the robot joints
         """
-        for angle, velocity in zip(angles, velocities):
-            position = self.nao.getAnglesPosition(angle)
-
-            lower_limit = self.nao.joint_dict[angle].getLowerLimit()
-            upper_limit = self.nao.joint_dict[angle].getUpperLimit()
-
+        for joint, velocity in zip(joints, velocities):
             pybullet.setJointMotorControl2(
                 self.nao.robot_model,
-                self.nao.joint_dict[angle].getIndex(),
+                self.nao.joint_dict[joint].getIndex(),
                 pybullet.VELOCITY_CONTROL,
                 targetVelocity=velocity)
 
-    def _getLinkPosition(self, link_name):
-        """
-        Returns the position of the link in the world frame
-        """
-        link_state = pybullet.getLinkState(
-            self.nao.robot_model,
-            self.nao.link_dict[link_name].getIndex())
+    def _enableFsrSensor(self):
+        num_joint = pybullet.getNumJoints(self.nao.robot_model)
+        self.fsr_index_list = []
+        for index in range(0, num_joint):
+            joint_info = pybullet.getJointInfo(
+                self.nao.robot_model,
+                index
+            )
+            if "FSR" in joint_info[1].decode('utf-8'):
+                self.fsr_index_list.append(index)
+        for fsr in self.fsr_index_list:
+            pybullet.enableJointForceTorqueSensor(
+                self.nao.robot_model,
+                fsr,
+                True
+            )
 
-        return link_state[0], link_state[1]
+    def _getFsrValue(self):
+        fsr_value_list = []
+        for fsr in self.fsr_index_list:
+            _, _, reaction_forces, motor_torque =\
+                pybullet.getJointState(
+                    self.nao.robot_model,
+                    fsr
+                )
+            fsr_value_list.append(reaction_forces[2])
+        return fsr_value_list
+
+    def _getJointState(self, joint_name):
+        """
+        Returns the state of the joint in the world frame
+        """
+        position, velocity, _, _ =\
+            pybullet.getJointState(
+                self.nao.robot_model,
+                self.nao.joint_dict[joint_name].getIndex())
+
+        return position, velocity
+
+    def _getLinkState(self, link_name):
+        """
+        Returns the state of the link in the world frame
+        """
+        (x, y, z), (qx, qy, qz, qw), _, _, _, _, (vx, vy, vz),\
+            (vroll, vpitch, vyaw) = pybullet.getLinkState(
+            self.nao.robot_model,
+            self.nao.link_dict[link_name].getIndex(),
+            computeLinkVelocity=1)
+
+        return (x, y, z), (qx, qy, qz, qw), (vx, vy, vz), (vroll, vpitch, vyaw)
 
     def _getState(self, convergence_criteria=0.12, divergence_criteria=0.6):
         """
@@ -185,17 +248,51 @@ class NaoEnv(gym.Env):
         cube is inferior to the one defined by the convergence criteria, the
         episode is stopped
         """
-        # Get the position of the torso in the world
-        torso_pos, _ = self._getLinkPosition("torso")
+        # Get the information on the joints
+        joint_position_list = []
+        joint_velocity_list = []
 
+        for joint in self.controlled_joints:
+            pos, vel = self._getJointState(joint)
+            joint_position_list.append(pos)
+            joint_velocity_list.append(vel)
+
+        joint_position_list = np.array(
+            joint_position_list,
+            dtype=np.float32
+        )
+
+        joint_velocity_list = np.array(
+            joint_velocity_list,
+            dtype=np.float32
+        )
+
+        fsr_force_z = np.array(
+            self._getFsrValue(),
+            dtype=np.float32
+        )
+
+        (x, y, z), (qx, qy, qz, qw), (vx, vy, vz), (vroll, vpitch, vyaw) =\
+            self._getLinkState("torso")
+
+        torso_state = np.array(
+            [z, qw, vx, vy, vz, vroll, vpitch, vyaw],
+            dtype=np.float32
+        )
         # Fill the observation
-        obs = None
+        obs = np.clip(
+                np.concatenate(
+                    [joint_position_list] +
+                    [joint_velocity_list] +
+                    [torso_state] +
+                    [fsr_force_z]),
+                -5, +5)
 
         # To be passed to True when the episode is over
         # self.episode_over = True
 
         # Compute the reward
-        reward = None
+        reward = sum([x, vx])
 
         return obs, reward
 
@@ -207,8 +304,9 @@ class NaoEnv(gym.Env):
         self.nao = self.simulation_manager.spawnNao(
             self.client,
             spawn_ground_plane=True)
-
-        self.nao.setAngles(self.controlled_joints, self.starting_position, 1.0)
+        self._enableFsrSensor()
+        self.nao.setAngles(self.all_joints,
+                           self.starting_position, 1.0)
         time.sleep(1.0)
 
     def _resetScene(self):
@@ -223,7 +321,8 @@ class NaoEnv(gym.Env):
             ornObj=[0.0, 0.0, 0.0, 1.0],
             physicsClientId=self.client)
 
-        self.nao.setAngles(self.controlled_joints, self.starting_position, 1.0)
+        self.nao.setAngles(self.all_joints,
+                           self.starting_position, 1.0)
         time.sleep(1.0)
 
     def _termination(self):
@@ -233,22 +332,22 @@ class NaoEnv(gym.Env):
         self.simulation_manager.stopSimulation(self.client)
 
 
-def main():
-    env = NaoEnv(gui=False)
-
-    # Test observation space and action space sampling
-    env.observation_space.sample()
-    action = env.action_space.sample()
-
-    # Test resetting environment
-    state = env.reset()
-
-    # Test computing a step
-    next_state, reward, done, _ = env.step(action.tolist())
-
-    # Terminate env
-    env._termination()
-
-
-if __name__ == "__main__":
-    main()
+# def main():
+#     env = NaoEnv(gui=True)
+#
+#     # Test observation space and action space sampling
+#     env.observation_space.sample()
+#     action = env.action_space.sample()
+#
+#     # Test resetting environment
+#     state = env.reset()
+#
+#     # Test computing a step
+#     next_state, reward, done, _ = env.step(action.tolist())
+#
+#     # Terminate env
+#     env._termination()
+#
+#
+# if __name__ == "__main__":
+#     main()
