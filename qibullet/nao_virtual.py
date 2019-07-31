@@ -26,7 +26,6 @@ class NaoVirtual(RobotVirtual):
     P_SIT_RELAX = NaoPosture("SitRelax")
     P_LYING_BELLY = NaoPosture("LyingBelly")
     P_LYING_BACK = NaoPosture("LyingBack")
-    P_RUNNING_STANCE = NaoPosture("RunningStance")
 
     def __init__(self):
         """
@@ -281,8 +280,7 @@ class NaoVirtual(RobotVirtual):
             NaoVirtual.P_SIT,
             NaoVirtual.P_SIT_RELAX,
             NaoVirtual.P_LYING_BELLY,
-            NaoVirtual.P_LYING_BACK,
-            NaoVirtual.P_RUNNING_STANCE]
+            NaoVirtual.P_LYING_BACK]
 
         for posture in posture_list:
             if posture.isPostureName(posture_name):
