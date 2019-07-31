@@ -17,7 +17,6 @@ class RobotPosture:
     SIT_RELAX = "SitRelax"
     LYING_BELLY = "LyingBelly"
     LYING_BACK = "LyingBack"
-    RUNNING_STANCE = "RunningStance"
 
     def __init__(self, posture_name):
         """
@@ -451,32 +450,3 @@ class NaoPosture(RobotPosture):
                 1.54461634,
                 0.179435983,
                 0.360799968])
-        elif self.isPostureName(RobotPosture.RUNNING_STANCE):
-            self._setPosture(joint_names, [
-                0,
-                0,
-                1.57079632,
-                0,
-                -1.57079632,
-                -1.57079632,
-                0,
-                0,
-                0,
-                0,
-                -0.523598775,
-                1.04719755,
-                -0.523598775,
-                0,
-                0,
-                0,
-                -0.523598775,
-                1.04719755,
-                -0.523598775,
-                0,
-                1.570796326,
-                0,
-                1.570796326,
-                1.570796326,
-                0,
-                0]
-                )
