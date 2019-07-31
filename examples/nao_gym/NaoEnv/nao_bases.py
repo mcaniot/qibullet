@@ -31,13 +31,19 @@ class QibulletBasedRobot(XmlBasedRobot):
             'LShoulder', 'LElbow', 'Head', 'r_ankle', 'RShoulder',
             'LForeArm']
         self.fsr_index_list = []
+        # self.jdict_list = ['RAnklePitch', 'LHipRoll', 'LKneePitch',
+        #                    'RShoulderPitch', 'RHipRoll', 'RHipPitch',
+        #                    'LHipYawPitch', 'RShoulderRoll', 'RHipYawPitch',
+        #                    'LElbowYaw', 'LHipPitch', 'RAnkleRoll',
+        #                    'LAnkleRoll', 'LShoulderRoll', 'RKneePitch',
+        #                    'LElbowRoll', 'RElbowYaw', 'RElbowRoll',
+        #                    'LAnklePitch', 'LShoulderPitch']
         self.jdict_list = ['RAnklePitch', 'LHipRoll', 'LKneePitch',
-                           'RShoulderPitch', 'RHipRoll', 'RHipPitch',
-                           'LHipYawPitch', 'RShoulderRoll', 'RHipYawPitch',
-                           'LElbowYaw', 'LHipPitch', 'RAnkleRoll',
-                           'LAnkleRoll', 'LShoulderRoll', 'RKneePitch',
-                           'LElbowRoll', 'RElbowYaw', 'RElbowRoll',
-                           'LAnklePitch', 'LShoulderPitch']
+                           'RHipRoll', 'RHipPitch',
+                           'LHipYawPitch', 'RHipYawPitch',
+                           'LHipPitch', 'RAnkleRoll',
+                           'LAnkleRoll', 'RKneePitch',
+                           'LAnklePitch']
 
     def resetPoseStance(self):
         joint_names = [
@@ -141,9 +147,11 @@ class QibulletBasedRobot(XmlBasedRobot):
     def reset(self, bullet_client):
         self._p = bullet_client
         self.ordered_joints = []
-        self.robot_virtual.loadRobot(self.basePosition,
-                                     self.baseOrientation,
-                                     self._p._client)
+        if not self.is_loaded:
+            self.robot_virtual.loadRobot(self.basePosition,
+                                         self.baseOrientation,
+                                         self._p._client)
+            self.is_loaded = True
         self.parts, self.jdict, self.ordered_joints, self.robot_body =\
             self.addToScene(
                 self._p,
@@ -155,9 +163,9 @@ class QibulletBasedRobot(XmlBasedRobot):
             if item not in self.jdict_list:
                 del self.jdict[item]
         self.ordered_joints = self.jdict.values()
-        self.robot_specific_reset(self._p)
         self.resetPoseStance()
-        self.enableFsrSensor()
+        # self.enableFsrSensor()
+        self.robot_specific_reset(self._p)
 
         s = self.calc_state()
         self.potential = self.calc_potential()
