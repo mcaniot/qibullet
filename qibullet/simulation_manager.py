@@ -9,7 +9,7 @@ from qibullet.laser import Laser
 from qibullet.camera import Camera
 from qibullet.nao_virtual import NaoVirtual
 from qibullet.pepper_virtual import PepperVirtual
-from qibullet.base_controller import BaseController
+from qibullet.robot_module import RobotModule
 
 
 class SimulationManager:
@@ -76,6 +76,25 @@ class SimulationManager:
         """
         self._clearInstance(physics_client)
         pybullet.disconnect(physicsClientId=physics_client)
+
+    def setLightPosition(self, physics_client, light_position):
+        """
+        Set the position of the GUI's light (does not work in DIRECT mode)
+
+        Parameters:
+            light_position - List containing the 3D positions [x, y, z] along
+            the X, Y, and Z axis in the world frame, in meters
+        """
+        try:
+            assert isinstance(light_position, list)
+            assert len(light_position) == 3
+
+            pybullet.configureDebugVisualizer(
+                lightPosition=light_position,
+                physicsClientId=physics_client)
+
+        except AssertionError:
+            raise pybullet.error("Incorrect light position format")
 
     def spawnPepper(
             self,
@@ -153,13 +172,13 @@ class SimulationManager:
         Parameters:
             pepper_virtual - The virtual Pepper robot to be removed
         """
-        pepper_virtual.laser_manager._terminateScan()
-        pepper_virtual.base_controller._terminateController()
+        pepper_virtual.laser_manager._terminateModule()
+        pepper_virtual.base_controller._terminateModule()
         pepper_virtual.unsubscribeCamera(PepperVirtual.ID_CAMERA_TOP)
         pepper_virtual.unsubscribeCamera(PepperVirtual.ID_CAMERA_BOTTOM)
         pepper_virtual.unsubscribeCamera(PepperVirtual.ID_CAMERA_DEPTH)
 
-        pybullet.removeBody(pepper_virtual.robot_model)
+        pybullet.removeBody(pepper_virtual.getRobotModel())
 
     def removeNao(self, nao_virtual):
         """
@@ -171,27 +190,22 @@ class SimulationManager:
         nao_virtual.unsubscribeCamera(NaoVirtual.ID_CAMERA_TOP)
         nao_virtual.unsubscribeCamera(NaoVirtual.ID_CAMERA_BOTTOM)
 
-        pybullet.removeBody(nao_virtual.robot_model)
+        pybullet.removeBody(nao_virtual.getRobotModel())
 
     def _clearInstance(self, physics_client):
         """
-        INTERNAL METHOD, Called to kill the processes running in a simulated
-        instance, before resetting or stopping it.
+        INTERNAL METHOD, Called to kill the processes of modules running in a
+        simulated instance, before resetting or stopping it.
 
         Parameters:
             physics_client - The client id of the simulated instance that will
             be cleared
         """
-        for laser in Laser._getInstances():
-            if laser.physics_client == physics_client:
-                laser._terminateScan()
+        Camera.ACTIVE_CAMERA_ID[physics_client] = -1
 
-        for camera in Camera._getInstances():
-            if camera.physics_client == physics_client:
-                camera._resetActiveCamera()
-
-        for controller in BaseController._getInstances():
-            controller._terminateController()
+        for module in RobotModule._getInstances():
+            if module.getPhysicsClientId() == physics_client:
+                module._terminateModule()
 
     def _stepSimulation(self, physics_client):
         """
