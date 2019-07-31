@@ -34,17 +34,57 @@ class WalkerBaseQibullet(QibulletBasedRobot):
         assert (np.isfinite(a).all())
         if self.previous_theta_target is None:
             self.previous_theta_target = [0] * len(a)
+        joint_names = [
+            "HeadYaw",
+            "HeadPitch",
+            "LShoulderPitch",
+            "LShoulderRoll",
+            "LElbowYaw",
+            "LElbowRoll",
+            "LWristYaw",
+            "LHand",
+            "RShoulderPitch",
+            "RShoulderRoll",
+            "RElbowYaw",
+            "RElbowRoll",
+            "RWristYaw",
+            "RHand"]
+        position_values = [
+            0,
+            0,
+            1.57079632,
+            0,
+            -1.57079632,
+            -1.57079632,
+            0,
+            0,
+            1.570796326,
+            0,
+            1.570796326,
+            1.570796326,
+            0,
+            0]
+        for i in range(0, len(joint_names)):
+            joint = joint_names[i]
+            position = position_values[i]
+            self._p.resetJointState(
+                    self.robot_body.bodies[self.robot_body.bodyIndex],
+                    self.robot_virtual.joint_dict[joint].getIndex(),
+                    position)
         for n, j in enumerate(self.ordered_joints):
             try:
-                k = 7
-                x_target = np.clip(a[n], -1, +1)
-                theta_target = (x_target + 1) *\
-                    (j.lowerLimit - j.upperLimit)/2 + j.upperLimit
-                speed_target = (theta_target -
-                                self.previous_theta_target[n]) / k
-                j.set_velocity(
-                    float(np.clip(speed_target, -k, +k)))
-                self.previous_theta_target[n] = x_target
+                j.set_motor_torque(
+                    self.power * j.power_coef * float(np.clip(a[n], -1, +1)))
+                # k = self.robot_virtual.joint_dict[j.joint_name].\
+                #     getMaxVelocity()
+                # x_target = np.clip(a[n], -1, +1)
+                # theta_target = (x_target + 1) *\
+                #     (j.lowerLimit - j.upperLimit)/2 + j.upperLimit
+                # speed_target = (theta_target -
+                #                 self.previous_theta_target[n]) / k
+                # j.set_velocity(
+                #     float(np.clip(speed_target, -k, +k)))
+                # self.previous_theta_target[n] = x_target
             except Exception as e:
                 print(e)
                 self.list_id.append(n)
@@ -75,6 +115,7 @@ class WalkerBaseQibullet(QibulletBasedRobot):
         self.walk_target_dist = np.linalg.norm(
                 [self.walk_target_y - self.body_xyz[1],
                  self.walk_target_x - self.body_xyz[0]])
+        angle_to_target = self.walk_target_theta - yaw
         (vx, vy, vz), (vroll, vpitch, vyaw) = self.getBodySpeed()
         fsr_force_z = np.array(
             self.getFsrValue(),
@@ -89,24 +130,37 @@ class WalkerBaseQibullet(QibulletBasedRobot):
                 (vy - self.vcc_init[1])/self.scene.dt,
                 (vz - self.vcc_init[2])/self.scene.dt,
             ]
+        # variables_in_array = np.array(
+        #     [
+        #         z - self.initial_z,
+        #         self.body_rpy[2],
+        #         acc_x,
+        #         acc_y,
+        #         acc_z,
+        #         vroll,
+        #         vpitch,
+        #         vyaw
+        #     ],
+        #     dtype=np.float32
+        # )
         variables_in_array = np.array(
             [
-                self.body_xyz[2],
-                self.body_rpy[2],
-                acc_x,
-                acc_y,
-                acc_z,
-                vroll,
-                vpitch,
-                vyaw
+                z - self.initial_z,
+                np.sin(angle_to_target),
+                np.cos(angle_to_target),
+                0.3 * vx,
+                0.3 * vy,
+                0.3 * vz,
+                r,
+                p
             ],
             dtype=np.float32
         )
         ob_space = np.clip(
                     np.concatenate(
                         [variables_in_array] +
-                        [fsr_force_z] +
                         [j] +
+                        # [fsr_force_z] +
                         [self.feet_contact]),
                     -5, +5)
         return ob_space
@@ -137,18 +191,18 @@ class Nao(WalkerBaseQibullet):
         WalkerBaseQibullet.__init__(self,
                                     NaoVirtual(),
                                     "torso",
-                                    action_dim=20,
-                                    obs_dim=58,
-                                    power=0.020)
+                                    action_dim=12,
+                                    obs_dim=34,
+                                    power=0.015)
 
     def alive_bonus(self, z, pitch):
-        knees = np.array(
-            [j.current_relative_position() for j in [self.jdict["LKneePitch"],
-                                                     self.jdict["RKneePitch"]
-                                                     ]],
-            dtype=np.float32).flatten()
-        knees_at_limit = np.count_nonzero(np.abs(knees[0::2]) > 0.99)
-        return +4-knees_at_limit if z > 0.25 else -1
+        # knees = np.array(
+        #     [j.current_relative_position() for j in [self.jdict["LKneePitch"],
+        #                                              self.jdict["RKneePitch"]
+        #                                              ]],
+        #     dtype=np.float32).flatten()
+        # knees_at_limit = np.count_nonzero(np.abs(knees[0::2]) > 0.99)
+        return +2 if z > 0.25 else -1
 
     def robot_specific_reset(self, bullet_client):
         WalkerBaseQibullet.robot_specific_reset(self, bullet_client)
