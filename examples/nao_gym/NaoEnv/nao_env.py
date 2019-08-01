@@ -109,7 +109,6 @@ class NaoEnv(gym.Env):
 
         self._setupScene()
 
-        # TODO; to be specified
         obs_space = np.inf * np.ones([OBS_DIM])
         self.observation_space = spaces.Box(
             low=-obs_space,
@@ -175,6 +174,10 @@ class NaoEnv(gym.Env):
 
         obs, _ = self._getState()
         return obs
+
+    def _resetJointState(self):
+        self.nao.setAngles(self.all_joints,
+                           self.starting_position, 1.0)
 
     def render(self, mode='human', close=False):
         pass
@@ -290,10 +293,11 @@ class NaoEnv(gym.Env):
                 -5, +5)
 
         # To be passed to True when the episode is over
-        # self.episode_over = True
+        if z < 0.3:
+            self.episode_over = True
 
         # Compute the reward
-        reward = sum([x, vx])
+        reward = sum([x, vx*2, abs(np.mean(fsr_force_z))])
 
         return obs, reward
 
@@ -306,24 +310,37 @@ class NaoEnv(gym.Env):
             self.client,
             spawn_ground_plane=True)
         self._enableFsrSensor()
-        self.nao.setAngles(self.all_joints,
-                           self.starting_position, 1.0)
+        self._resetJointState()
         time.sleep(1.0)
 
     def _resetScene(self):
         """
         Resets the scene for a new scenario
         """
-        self.nao.goToPosture("Stand", 1.0)
 
         pybullet.resetBasePositionAndOrientation(
             self.nao.robot_model,
             posObj=[0.0, 0.0, 0.36],
             ornObj=[0.0, 0.0, 0.0, 1.0],
             physicsClientId=self.client)
-
-        self.nao.setAngles(self.all_joints,
-                           self.starting_position, 1.0)
+        balance_constraint = pybullet.createConstraint(
+            parentBodyUniqueId=self.nao.robot_model,
+            parentLinkIndex=-1,
+            childBodyUniqueId=-1,
+            childLinkIndex=-1,
+            jointType=pybullet.JOINT_FIXED,
+            jointAxis=[0, 0, 0],
+            parentFramePosition=[0, 0, 0],
+            parentFrameOrientation=[0, 0, 0, 1],
+            childFramePosition=[0.0, 0.0, 0.36],
+            childFrameOrientation=[0.0, 0.0, 0.0, 1.0],
+            physicsClientId=self.client)
+        self.nao.goToPosture("Stand", 1.0)
+        self._resetJointState()
+        time.sleep(0.5)
+        pybullet.removeConstraint(
+            balance_constraint,
+            physicsClientId=self.client)
         time.sleep(1.0)
 
     def _termination(self):
