@@ -6,9 +6,9 @@ import time
 import numpy as np
 from gym import spaces
 import pybullet
-import pybullet_data
-from qibullet import NaoVirtual
 from qibullet import SimulationManager
+
+OBS_DIM = 56
 
 
 class NaoEnv(gym.Env):
@@ -110,9 +110,10 @@ class NaoEnv(gym.Env):
         self._setupScene()
 
         # TODO; to be specified
+        obs_space = np.inf * np.ones([OBS_DIM])
         self.observation_space = spaces.Box(
-            low=np.array([-0.2, -0.6, 0.3]),
-            high=np.array([0.6, 0.2, 0.8]))
+            low=-obs_space,
+            high=obs_space)
 
         max_velocities = [self.nao.joint_dict[joint].getMaxVelocity() for
                           joint in self.controlled_joints]
