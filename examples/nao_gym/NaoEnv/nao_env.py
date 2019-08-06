@@ -106,7 +106,8 @@ class NaoEnv(gym.Env):
         self.episode_over = False
         self.gui = gui
         self.simulation_manager = SimulationManager()
-
+        # One environment for instance
+        self.num_envs = 1
         self._setupScene()
 
         obs_space = np.inf * np.ones([OBS_DIM])
@@ -170,10 +171,24 @@ class NaoEnv(gym.Env):
         Resets the environment for a new episode
         """
         self.episode_over = False
+        self.previous_x = 0
         self._resetScene()
 
         obs, _ = self._getState()
         return obs
+
+    def _hardResetJointState(self):
+        for joint, position in zip(self.all_joints, self.starting_position):
+            pybullet.setJointMotorControl2(
+                self.nao.robot_model,
+                self.nao.joint_dict[joint].getIndex(),
+                pybullet.VELOCITY_CONTROL,
+                targetVelocity=0)
+            pybullet.resetJointState(
+                    self.nao.robot_model,
+                    self.nao.joint_dict[joint].getIndex(),
+                    position)
+        self._resetJointState()
 
     def _resetJointState(self):
         self.nao.setAngles(self.all_joints,
@@ -278,27 +293,26 @@ class NaoEnv(gym.Env):
 
         (x, y, z), (qx, qy, qz, qw), (vx, vy, vz), (vroll, vpitch, vyaw) =\
             self._getLinkState("torso")
-
+        roll, pitch, yaw = pybullet.getEulerFromQuaternion([qx, qy, qz, qw])
         torso_state = np.array(
-            [z, qw, vx, vy, vz, vroll, vpitch, vyaw],
+            [z, yaw, vx, vy, vz, vroll, vpitch, vyaw],
             dtype=np.float32
         )
         # Fill the observation
-        obs = np.clip(
-                np.concatenate(
-                    [joint_position_list] +
-                    [joint_velocity_list] +
-                    [torso_state] +
-                    [fsr_force_z]),
-                -5, +5)
+        obs = np.concatenate(
+            [joint_position_list] +
+            [joint_velocity_list] +
+            [torso_state] +
+            [fsr_force_z])
 
         # To be passed to True when the episode is over
-        if z < 0.3:
+        print(x)
+        if z < 0.27 or x > 14:
             self.episode_over = True
 
         # Compute the reward
-        reward = sum([x, vx*2, abs(np.mean(fsr_force_z))])
-
+        reward = x - self.previous_x
+        self.previous_x = x
         return obs, reward
 
     def _setupScene(self):
@@ -335,13 +349,11 @@ class NaoEnv(gym.Env):
             childFramePosition=[0.0, 0.0, 0.36],
             childFrameOrientation=[0.0, 0.0, 0.0, 1.0],
             physicsClientId=self.client)
-        self.nao.goToPosture("Stand", 1.0)
-        self._resetJointState()
-        time.sleep(0.5)
+        self._hardResetJointState()
         pybullet.removeConstraint(
             balance_constraint,
             physicsClientId=self.client)
-        time.sleep(1.0)
+        time.sleep(0.5)
 
     def _termination(self):
         """
