@@ -106,8 +106,6 @@ class NaoEnv(gym.Env):
         self.episode_over = False
         self.gui = gui
         self.simulation_manager = SimulationManager()
-        # One environment for instance
-        self.num_envs = 1
         self._setupScene()
 
         obs_space = np.inf * np.ones([OBS_DIM])
@@ -306,7 +304,6 @@ class NaoEnv(gym.Env):
             [fsr_force_z])
 
         # To be passed to True when the episode is over
-        print(x)
         if z < 0.27 or x > 14:
             self.episode_over = True
 
