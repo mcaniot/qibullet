@@ -26,7 +26,7 @@ def train(num_timesteps, seed, model_path=None):
                  MlpPolicy,
                  env,
                  verbose=2,
-                 tensorboard_log="logs/PPOAgent/" + datetime.now().strftime(
+                 tensorboard_log="logs/PPO2Agent/" + datetime.now().strftime(
                      "%Y%m%d-%H%M%S"))
     model.learn(total_timesteps=num_timesteps)
     model.save(model_path)

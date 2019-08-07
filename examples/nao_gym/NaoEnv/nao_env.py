@@ -8,7 +8,7 @@ from gym import spaces
 import pybullet
 from qibullet import SimulationManager
 
-OBS_DIM = 56
+OBS_DIM = 50
 
 
 class NaoEnv(gym.Env):
@@ -181,11 +181,13 @@ class NaoEnv(gym.Env):
                 self.nao.robot_model,
                 self.nao.joint_dict[joint].getIndex(),
                 pybullet.VELOCITY_CONTROL,
-                targetVelocity=0)
+                targetVelocity=0,
+                physicsClientId=self.client)
             pybullet.resetJointState(
                     self.nao.robot_model,
                     self.nao.joint_dict[joint].getIndex(),
-                    position)
+                    position,
+                    physicsClientId=self.client)
         self._resetJointState()
 
     def _resetJointState(self):
@@ -204,35 +206,8 @@ class NaoEnv(gym.Env):
                 self.nao.robot_model,
                 self.nao.joint_dict[joint].getIndex(),
                 pybullet.VELOCITY_CONTROL,
-                targetVelocity=velocity)
-
-    def _enableFsrSensor(self):
-        num_joint = pybullet.getNumJoints(self.nao.robot_model)
-        self.fsr_index_list = []
-        for index in range(0, num_joint):
-            joint_info = pybullet.getJointInfo(
-                self.nao.robot_model,
-                index
-            )
-            if "FSR" in joint_info[1].decode('utf-8'):
-                self.fsr_index_list.append(index)
-        for fsr in self.fsr_index_list:
-            pybullet.enableJointForceTorqueSensor(
-                self.nao.robot_model,
-                fsr,
-                True
-            )
-
-    def _getFsrValue(self):
-        fsr_value_list = []
-        for fsr in self.fsr_index_list:
-            _, _, reaction_forces, motor_torque =\
-                pybullet.getJointState(
-                    self.nao.robot_model,
-                    fsr
-                )
-            fsr_value_list.append(reaction_forces[2])
-        return fsr_value_list
+                targetVelocity=velocity,
+                physicsClientId=self.client)
 
     def _getJointState(self, joint_name):
         """
@@ -241,7 +216,8 @@ class NaoEnv(gym.Env):
         position, velocity, _, _ =\
             pybullet.getJointState(
                 self.nao.robot_model,
-                self.nao.joint_dict[joint_name].getIndex())
+                self.nao.joint_dict[joint_name].getIndex(),
+                physicsClientId=self.client)
 
         return position, velocity
 
@@ -253,9 +229,24 @@ class NaoEnv(gym.Env):
             (vroll, vpitch, vyaw) = pybullet.getLinkState(
             self.nao.robot_model,
             self.nao.link_dict[link_name].getIndex(),
-            computeLinkVelocity=1)
+            computeLinkVelocity=1,
+            physicsClientId=self.client)
 
         return (x, y, z), (qx, qy, qz, qw), (vx, vy, vz), (vroll, vpitch, vyaw)
+
+    def _getContactFeet(self):
+        foot_list = ["r_ankle", "l_ankle"]
+        contact_list = []
+        for foot_joint in foot_list:
+            points = pybullet.getContactPoints(
+                bodyA=self.nao.robot_model,
+                linkIndexA=self.nao.link_dict[foot_joint].getIndex(),
+                physicsClientId=self.client)
+            if len(points) > 0:
+                contact_list.append(1)
+            else:
+                contact_list.append(0)
+        return contact_list
 
     def _getState(self, convergence_criteria=0.12, divergence_criteria=0.6):
         """
@@ -284,8 +275,8 @@ class NaoEnv(gym.Env):
             dtype=np.float32
         )
 
-        fsr_force_z = np.array(
-            self._getFsrValue(),
+        feet_contact = np.array(
+            self._getContactFeet(),
             dtype=np.float32
         )
 
@@ -301,7 +292,7 @@ class NaoEnv(gym.Env):
             [joint_position_list] +
             [joint_velocity_list] +
             [torso_state] +
-            [fsr_force_z])
+            [feet_contact])
 
         # To be passed to True when the episode is over
         if z < 0.27 or x > 14:
@@ -309,6 +300,8 @@ class NaoEnv(gym.Env):
 
         # Compute the reward
         reward = x - self.previous_x
+        if z < 0.27:
+            reward += -1
         self.previous_x = x
         return obs, reward
 
@@ -320,7 +313,6 @@ class NaoEnv(gym.Env):
         self.nao = self.simulation_manager.spawnNao(
             self.client,
             spawn_ground_plane=True)
-        self._enableFsrSensor()
         self._resetJointState()
         time.sleep(1.0)
 
