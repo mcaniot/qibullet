@@ -21,15 +21,20 @@ def train(num_timesteps, seed, model_path=None):
 
     env = NaoEnv.NaoEnv(gui=True)
     env = DummyVecEnv([lambda: env])
-
     model = PPO2(
                  MlpPolicy,
                  env,
+                 n_steps=4096,
                  verbose=2,
                  tensorboard_log="logs/PPO2Agent/" + datetime.now().strftime(
                      "%Y%m%d-%H%M%S"))
-    model.learn(total_timesteps=num_timesteps)
-    model.save(model_path)
+    i = 0
+    while i < num_timesteps:
+        if i != 0:
+            model.load(model_path)
+        model.learn(total_timesteps=int(1e6))
+        model.save(model_path)
+        i += int(1e6)
     env.close()
 
 
