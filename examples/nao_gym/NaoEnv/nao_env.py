@@ -8,7 +8,7 @@ from gym import spaces
 import pybullet
 from qibullet import SimulationManager
 
-OBS_DIM = 50
+OBS_DIM = 65
 
 
 class NaoEnv(gym.Env):
@@ -106,6 +106,9 @@ class NaoEnv(gym.Env):
         self.episode_over = False
         self.gui = gui
         self.simulation_manager = SimulationManager()
+        self.counter = 0
+        self.number_of_step_in_episode = 0
+        self.last_step_reward = 0
         self._setupScene()
 
         obs_space = np.inf * np.ones([OBS_DIM])
@@ -160,6 +163,7 @@ class NaoEnv(gym.Env):
             return None, None, None, None
 
         self._setVelocities(self.controlled_joints, action)
+        self.number_of_step_in_episode += 1
 
         obs, reward = self._getState()
         return obs, reward, self.episode_over, {}
@@ -170,6 +174,9 @@ class NaoEnv(gym.Env):
         """
         self.episode_over = False
         self.previous_x = 0
+        self.counter = 0
+        self.number_of_step_in_episode = 0
+        self.last_step_reward = 0
         self._resetScene()
 
         obs, _ = self._getState()
@@ -284,25 +291,62 @@ class NaoEnv(gym.Env):
             self._getLinkState("torso")
         roll, pitch, yaw = pybullet.getEulerFromQuaternion([qx, qy, qz, qw])
         torso_state = np.array(
-            [z, yaw, vx, vy, vz, vroll, vpitch, vyaw],
+            [x, y, z, yaw, vx, vy, vz, vroll, vpitch, vyaw],
             dtype=np.float32
         )
+
+        (x, y, z), (qx, qy, qz, qw), (vx, vy, vz), (vroll, vpitch, vyaw) =\
+            self._getLinkState("r_ankle")
+        roll, pitch, yaw = pybullet.getEulerFromQuaternion([qx, qy, qz, qw])
+        r_ankle_state = np.array(
+            [x, y, z, vx, vy, vz],
+            dtype=np.float32
+        )
+
+        (x, y, z), (qx, qy, qz, qw), (vx, vy, vz), (vroll, vpitch, vyaw) =\
+            self._getLinkState("l_ankle")
+        roll, pitch, yaw = pybullet.getEulerFromQuaternion([qx, qy, qz, qw])
+        l_ankle_state = np.array(
+            [x, y, z, vx, vy, vz],
+            dtype=np.float32
+        )
+
+        self.counter = self.number_of_step_in_episode / 3
+        counter = np.array(
+            [self.counter],
+            dtype=np.float32
+        )
+
         # Fill the observation
         obs = np.concatenate(
+            [counter] +
             [joint_position_list] +
             [joint_velocity_list] +
             [torso_state] +
+            [r_ankle_state] +
+            [l_ankle_state] +
             [feet_contact])
 
+        reward = 0
         # To be passed to True when the episode is over
-        if z < 0.27 or x > 14:
+        if torso_state[2] < 0.27 or torso_state[0] > 14:
+            if torso_state[2] < 0.27:
+                reward += -100
+            if torso_state[0] > 14:
+                reward += 100
+            reward += int(torso_state[0] / 0.08) * 10
             self.episode_over = True
-
         # Compute the reward
-        reward = x - self.previous_x
-        if z < 0.27:
-            reward += -1
-        self.previous_x = x
+        # delta x : speed
+        reward += (torso_state[0] - self.previous_x) * 100
+        if self.counter - self.last_step_reward > 200:
+            self.last_step_reward = self.counter
+            if l_ankle_state[3] >= 0:
+                reward += 0.00001 * l_ankle_state[3]
+            if r_ankle_state[3] >= 0:
+                reward += 0.00001 * r_ankle_state[3]
+
+        self.previous_x = torso_state[0]
         return obs, reward
 
     def _setupScene(self):
