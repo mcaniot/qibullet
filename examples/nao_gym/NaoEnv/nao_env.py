@@ -8,7 +8,7 @@ from gym import spaces
 import pybullet
 from qibullet import SimulationManager
 
-OBS_DIM = 65
+OBS_DIM = 59
 
 
 class NaoEnv(gym.Env):
@@ -115,15 +115,29 @@ class NaoEnv(gym.Env):
         self.observation_space = spaces.Box(
             low=-obs_space,
             high=obs_space)
+        velocity_limits = [self.nao.joint_dict[joint].getMaxVelocity() for
+                           joint in self.controlled_joints]
+        velocity_limits.extend([-self.nao.joint_dict[joint].getMaxVelocity()
+                                for joint in self.controlled_joints])
 
-        max_velocities = [self.nao.joint_dict[joint].getMaxVelocity() for
-                          joint in self.controlled_joints]
-        min_velocities = [-self.nao.joint_dict[joint].getMaxVelocity() for
-                          joint in self.controlled_joints]
+        normalized_limits = self.normalize(velocity_limits)
+        self.max_velocities = normalized_limits[:len(self.controlled_joints)]
+        self.min_velocities = normalized_limits[len(self.controlled_joints):]
 
         self.action_space = spaces.Box(
-            low=np.array(min_velocities),
-            high=np.array(max_velocities))
+            low=np.array(self.min_velocities),
+            high=np.array(self.max_velocities))
+
+    def normalize(self, values, range_min=-1.0, range_max=1.0):
+        """
+        Normalizes values (list) according to a specific range
+        """
+        zero_bound = [x - min(values) for x in values]
+        range_bound = [
+            x * (range_max - range_min) / (max(zero_bound) - min(zero_bound))
+            for x in zero_bound]
+
+        return [x - max(range_bound) + range_max for x in range_bound]
 
     def step(self, action):
         """
@@ -161,7 +175,7 @@ class NaoEnv(gym.Env):
         except AssertionError:
             print("Incorrect action")
             return None, None, None, None
-
+        np.clip(action, self.min_velocities, self.max_velocities)
         self._setVelocities(self.controlled_joints, action)
         self.number_of_step_in_episode += 1
 
@@ -189,6 +203,7 @@ class NaoEnv(gym.Env):
                 self.nao.joint_dict[joint].getIndex(),
                 pybullet.VELOCITY_CONTROL,
                 targetVelocity=0,
+                force=self.nao.joint_dict[joint].getMaxEffort(),
                 physicsClientId=self.client)
             pybullet.resetJointState(
                     self.nao.robot_model,
@@ -204,16 +219,18 @@ class NaoEnv(gym.Env):
     def render(self, mode='human', close=False):
         pass
 
-    def _setVelocities(self, joints, velocities):
+    def _setVelocities(self, joints, n_velocities):
         """
         Sets velocities on the robot joints
         """
-        for joint, velocity in zip(joints, velocities):
+        for joint, n_velocity in zip(joints, n_velocities):
+            velocity = n_velocity * self.nao.joint_dict[joint].getMaxVelocity()
             pybullet.setJointMotorControl2(
                 self.nao.robot_model,
                 self.nao.joint_dict[joint].getIndex(),
                 pybullet.VELOCITY_CONTROL,
                 targetVelocity=velocity,
+                force=self.nao.joint_dict[joint].getMaxEffort(),
                 physicsClientId=self.client)
 
     def _getJointState(self, joint_name):
@@ -299,7 +316,7 @@ class NaoEnv(gym.Env):
             self._getLinkState("r_ankle")
         roll, pitch, yaw = pybullet.getEulerFromQuaternion([qx, qy, qz, qw])
         r_ankle_state = np.array(
-            [x, y, z, vx, vy, vz],
+            [x, y, z],
             dtype=np.float32
         )
 
@@ -307,7 +324,7 @@ class NaoEnv(gym.Env):
             self._getLinkState("l_ankle")
         roll, pitch, yaw = pybullet.getEulerFromQuaternion([qx, qy, qz, qw])
         l_ankle_state = np.array(
-            [x, y, z, vx, vy, vz],
+            [x, y, z],
             dtype=np.float32
         )
 
@@ -334,17 +351,19 @@ class NaoEnv(gym.Env):
                 reward += -100
             if torso_state[0] > 14:
                 reward += 100
-            reward += int(torso_state[0] / 0.08) * 10
             self.episode_over = True
+            # add reward if ankles moved
+            reward += 0.00001 * l_ankle_state[0] + 0.00001 * r_ankle_state[0]
         # Compute the reward
         # delta x : speed
         reward += (torso_state[0] - self.previous_x) * 100
-        if self.counter - self.last_step_reward > 200:
-            self.last_step_reward = self.counter
-            if l_ankle_state[3] >= 0:
-                reward += 0.00001 * l_ankle_state[3]
-            if r_ankle_state[3] >= 0:
-                reward += 0.00001 * r_ankle_state[3]
+
+        # if self.counter - self.last_step_reward > 200:
+        #     self.last_step_reward = self.counter
+        #     if l_ankle_state[3] >= 0:
+        #         reward += 0.00001 * l_ankle_state[3]
+        #     if r_ankle_state[3] >= 0:
+        #         reward += 0.00001 * r_ankle_state[3]
 
         self.previous_x = torso_state[0]
         return obs, reward
