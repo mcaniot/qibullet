@@ -1,12 +1,17 @@
 #!/usr/bin/env python
 # coding: utf-8
-
+import sys
+CV2_ROS = '/opt/ros/kinetic/lib/python2.7/dist-packages'
+if CV2_ROS in sys.path:
+    sys.path.remove(CV2_ROS)
+    sys.path.append(CV2_ROS)
 import gym
 import time
 import numpy as np
 from gym import spaces
 import pybullet
 from qibullet import SimulationManager
+import pickle
 
 OBS_DIM = 59
 
@@ -102,6 +107,11 @@ class NaoEnv(gym.Env):
             0.0,
             0.0]
 
+        infile = open("models_nao/positions.pckl", 'rb')
+        self.positions = pickle.load(infile)
+        self.positions_copy = list()
+        infile.close()
+
         # Passed to True at the end of an episode
         self.episode_over = False
         self.gui = gui
@@ -115,29 +125,10 @@ class NaoEnv(gym.Env):
         self.observation_space = spaces.Box(
             low=-obs_space,
             high=obs_space)
-        velocity_limits = [self.nao.joint_dict[joint].getMaxVelocity() for
-                           joint in self.controlled_joints]
-        velocity_limits.extend([-self.nao.joint_dict[joint].getMaxVelocity()
-                                for joint in self.controlled_joints])
-
-        normalized_limits = self.normalize(velocity_limits)
-        self.max_velocities = normalized_limits[:len(self.controlled_joints)]
-        self.min_velocities = normalized_limits[len(self.controlled_joints):]
 
         self.action_space = spaces.Box(
-            low=np.array(self.min_velocities),
-            high=np.array(self.max_velocities))
-
-    def normalize(self, values, range_min=-1.0, range_max=1.0):
-        """
-        Normalizes values (list) according to a specific range
-        """
-        zero_bound = [x - min(values) for x in values]
-        range_bound = [
-            x * (range_max - range_min) / (max(zero_bound) - min(zero_bound))
-            for x in zero_bound]
-
-        return [x - max(range_bound) + range_max for x in range_bound]
+            low=np.array([-1]*len(self.controlled_joints)),
+            high=np.array([1]*len(self.controlled_joints)))
 
     def step(self, action):
         """
@@ -175,10 +166,10 @@ class NaoEnv(gym.Env):
         except AssertionError:
             print("Incorrect action")
             return None, None, None, None
-        np.clip(action, self.min_velocities, self.max_velocities)
+        np.clip(action, [-1]*len(self.controlled_joints),
+                [1]*len(self.controlled_joints))
         self._setVelocities(self.controlled_joints, action)
         self.number_of_step_in_episode += 1
-
         obs, reward = self._getState()
         return obs, reward, self.episode_over, {}
 
@@ -192,6 +183,8 @@ class NaoEnv(gym.Env):
         self.number_of_step_in_episode = 0
         self.last_step_reward = 0
         self._resetScene()
+
+        self.positions_copy = self.positions.copy()
 
         obs, _ = self._getState()
         return obs
@@ -223,15 +216,23 @@ class NaoEnv(gym.Env):
         """
         Sets velocities on the robot joints
         """
-        for joint, n_velocity in zip(joints, n_velocities):
-            velocity = n_velocity * self.nao.joint_dict[joint].getMaxVelocity()
-            pybullet.setJointMotorControl2(
-                self.nao.robot_model,
-                self.nao.joint_dict[joint].getIndex(),
-                pybullet.VELOCITY_CONTROL,
-                targetVelocity=velocity,
-                force=self.nao.joint_dict[joint].getMaxEffort(),
-                physicsClientId=self.client)
+        if len(self.positions_copy) == 0:
+            self.episode_over = True
+            return
+
+        self.nao.setAngles(self.controlled_joints, self.positions_copy[0], 1.0)
+        time.sleep(0.002)
+        self.positions_copy.pop(0)
+
+        # for joint, n_velocity in zip(joints, n_velocities):
+        #     velocity = n_velocity * self.nao.joint_dict[joint].getMaxVelocity()
+        #     pybullet.setJointMotorControl2(
+        #         self.nao.robot_model,
+        #         self.nao.joint_dict[joint].getIndex(),
+        #         pybullet.VELOCITY_CONTROL,
+        #         targetVelocity=velocity,
+        #         force=self.nao.joint_dict[joint].getMaxEffort(),
+        #         physicsClientId=self.client)
 
     def _getJointState(self, joint_name):
         """
@@ -376,6 +377,11 @@ class NaoEnv(gym.Env):
         self.nao = self.simulation_manager.spawnNao(
             self.client,
             spawn_ground_plane=True)
+        self.nao.goToPosture("Stand", 0.8)
+
+        time.sleep(1.5)
+
+        self.starting_position = self.nao.getAnglesPosition(self.all_joints)
         self._resetJointState()
         time.sleep(1.0)
 
@@ -413,7 +419,33 @@ class NaoEnv(gym.Env):
         """
         self.simulation_manager.stopSimulation(self.client)
 
+    def walking_expert(self, _obs):
+        """
+        Generates actions accordingly to the obs
+        """
+        actions = list()
 
+        for name in self.controlled_joints:
+            actions.append(
+                self.nao.getAnglesVelocity(name) /
+                self.nao.joint_dict[name].getMaxVelocity())
+
+        return actions
+
+
+from stable_baselines.gail import generate_expert_traj
+
+def main():
+    env = NaoEnv(gui=True)
+
+    generate_expert_traj(
+        env.walking_expert,
+        'models_nao/walk_expert_v2',
+        env,
+        n_episodes=20)
+
+if __name__ == "__main__":
+    main()
 # def main():
 #     env = NaoEnv(gui=True)
 #
