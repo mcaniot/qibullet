@@ -32,7 +32,7 @@ def main():
     seed = int(time.time())
     np.random.seed(seed)
     # train the model
-    name_model = "models_nao/DDPG_walk_expert_v2_2"
+    name_model = "models_nao/DDPG_walk_pretrained_with_speed"
     visualize(name_model)
 
 if __name__ == '__main__':

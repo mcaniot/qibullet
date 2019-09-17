@@ -56,8 +56,8 @@ def init_model(gui=True):
 def train(num_timesteps, seed, model_path=None):
 
     env, model = init_model()
-
     i = 0
+    model.load(model_path + "/" + "DDPG_walk_pretrained_with_position")
     while i < num_timesteps:
         if i != 0:
             model.load(model_path + "/" + AGENT + "_" + repr(i))
@@ -81,15 +81,16 @@ def collect_pretrained_dataset(dataset_name):
 
 def pretrained_model(dataset_name, model):
     dataset = ExpertDataset(expert_path=dataset_name + '.npz',
-                            traj_limitation=-1, batch_size=256)
-    model.pretrain(dataset, n_epochs=2000)
+                            train_fraction=0.9,
+                            traj_limitation=1, batch_size=32)
+    model.pretrain(dataset, n_epochs=1000)
     return model
 
 
 def pretrained_model_and_save(dataset_name):
     env, model = init_model(gui=False)
     model = pretrained_model(PATH_MODEL + dataset_name, model)
-    model.save(PATH_MODEL + "/" + AGENT + "_" + dataset_name + "_2")
+    model.save(PATH_MODEL + "/" + AGENT + "_" + dataset_name)
     env.close()
 
 
@@ -111,7 +112,7 @@ def visualize(name_model):
 def main():
     seed = int(time.time())
     np.random.seed(seed)
-    pretrained_model_and_save("walk_expert_v2")
+    pretrained_model_and_save("walk_pretrained_with_speed")
     # train the model
     # train(num_timesteps=int(20e7), seed=seed,
     #       model_path=PATH_MODEL)
