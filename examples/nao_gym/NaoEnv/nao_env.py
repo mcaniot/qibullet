@@ -11,9 +11,8 @@ import numpy as np
 from gym import spaces
 import pybullet
 from qibullet import SimulationManager
-import pickle
 
-OBS_DIM = 60
+OBS_DIM = 59
 
 
 class NaoEnv(gym.Env):
@@ -107,12 +106,6 @@ class NaoEnv(gym.Env):
             0.0,
             0.0]
 
-        infile = open("models_nao/positions.pckl", 'rb')
-        # infile = open("models_nao/actions_list.pckl", 'rb')
-        self.positions = pickle.load(infile)
-        self.positions_copy = list()
-        infile.close()
-        self.action_list = list()
         # Passed to True at the end of an episode
         self.episode_over = False
         self.gui = gui
@@ -187,8 +180,6 @@ class NaoEnv(gym.Env):
         self.feet_ahead = None
         self._resetScene()
 
-        self.positions_copy = self.positions.copy()
-
         obs, _ = self._getState()
         return obs
 
@@ -219,39 +210,16 @@ class NaoEnv(gym.Env):
         """
         Sets velocities on the robot joints
         """
-        if len(self.positions_copy) == 0:
-            self.episode_over = True
-            return
-        for joint, position in zip(
-                self.controlled_joints, self.positions_copy[0]):
-            self.nao.setAngles(joint,
-                               position, 1.0)
-        self.positions_copy.pop(0)
 
-        # if len(self.positions_copy) == 0:
-        #     self.episode_over = True
-        #     return
-        # for joint, n_velocity in zip(
-        #         self.controlled_joints, self.positions_copy[0]):
-        #     velocity = n_velocity * self.nao.joint_dict[joint].getMaxVelocity()
-        #     pybullet.setJointMotorControl2(
-        #         self.nao.robot_model,
-        #         self.nao.joint_dict[joint].getIndex(),
-        #         pybullet.VELOCITY_CONTROL,
-        #         targetVelocity=velocity,
-        #         force=self.nao.joint_dict[joint].getMaxEffort(),
-        #         physicsClientId=self.client)
-        # self.positions_copy.pop(0)
-
-        # for joint, n_velocity in zip(joints, n_velocities):
-        #     velocity = n_velocity * self.nao.joint_dict[joint].getMaxVelocity()
-        #     pybullet.setJointMotorControl2(
-        #         self.nao.robot_model,
-        #         self.nao.joint_dict[joint].getIndex(),
-        #         pybullet.VELOCITY_CONTROL,
-        #         targetVelocity=velocity,
-        #         force=self.nao.joint_dict[joint].getMaxEffort(),
-        #         physicsClientId=self.client)
+        for joint, n_velocity in zip(joints, n_velocities):
+            velocity = n_velocity * self.nao.joint_dict[joint].getMaxVelocity()
+            pybullet.setJointMotorControl2(
+                self.nao.robot_model,
+                self.nao.joint_dict[joint].getIndex(),
+                pybullet.VELOCITY_CONTROL,
+                targetVelocity=velocity,
+                force=self.nao.joint_dict[joint].getMaxEffort(),
+                physicsClientId=self.client)
 
     def _getJointState(self, joint_name):
         """
@@ -369,7 +337,7 @@ class NaoEnv(gym.Env):
         # Fill the observation
         obs = np.concatenate(
             [counter] +
-            [np.array([self.foot_step_number], dtype=np.float32)] +
+            # [np.array([self.foot_step_number], dtype=np.float32)] +
             [joint_position_list] +
             [joint_velocity_list] +
             [torso_state] +
@@ -387,15 +355,24 @@ class NaoEnv(gym.Env):
             if torso_state[0] <= 0.2:
                 reward += -10
             else:
-                reward += np.clip(np.log(torso_state[0]), -2, 2)
-            if self.foot_step_number < 2:
+                reward += np.clip(torso_state[0] - 10, -10, 5)
+            pos_feet_to_evaluate = 0
+            if l_ankle_state[0] >= r_ankle_state[0]:
+                pos_feet_to_evaluate = r_ankle_state[0]
+            else:
+                pos_feet_to_evaluate = l_ankle_state[0]
+            if pos_feet_to_evaluate <= 0.2:
                 reward += -10
             else:
-                reward += np.clip(np.log(self.foot_step_number), -2, 2)
+                reward += np.clip(pos_feet_to_evaluate - 10, -10, 5)
+            # if self.foot_step_number < 2:
+            #     reward += -10
+            # else:
+            #     reward += np.clip(np.log(self.foot_step_number), -2, 2)
             if self.counter < 0 or torso_state[0] <= 0.2:
                 reward += -10
             else:
-                reward += np.clip(np.log(self.counter), -2, 2)
+                reward += np.clip(self.counter - 10, -10, 5)
             self.episode_over = True
         # Compute the reward
         # delta x : speed
@@ -453,44 +430,6 @@ class NaoEnv(gym.Env):
         """
         self.simulation_manager.stopSimulation(self.client)
 
-    def walking_expert_speed(self, _obs):
-        """
-        Generates actions accordingly to the obs
-        """
-        actions = list()
-
-        for name in self.controlled_joints:
-            actions.append(
-                self.nao.getAnglesVelocity(name) /
-                self.nao.joint_dict[name].getMaxVelocity())
-        self.action_list.append(actions)
-        time.sleep(0.0015)
-        return actions
-
-    def walking_expert_position(self, _obs):
-        """
-        Generates actions accordingly to the obs
-        """
-        actions = list()
-
-        for name in self.controlled_joints:
-            actions.append(
-                self.nao.getAnglesPosition(name))
-        return actions
-
-
-from stable_baselines.gail import generate_expert_traj
-
-def main():
-    env = NaoEnv(gui=True)
-
-    generate_expert_traj(
-        env.walking_expert_speed,
-        'models_nao/walk_pretrained_with_speed',
-        env,
-        n_episodes=1)
-    # outfile = open("models_nao/actions_list.pckl", 'wb')
-    # pickle.dump(env.action_list, outfile)
-
-if __name__ == "__main__":
-    main()
+    def close(self):
+        self._termination()
+    
