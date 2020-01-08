@@ -11,7 +11,6 @@ import numpy as np
 from gym import spaces
 import pybullet
 from qibullet import SimulationManager
-import pickle
 
 OBS_DIM = 59
 
@@ -107,18 +106,14 @@ class NaoEnv(gym.Env):
             0.0,
             0.0]
 
-        infile = open("models_nao/positions.pckl", 'rb')
-        self.positions = pickle.load(infile)
-        self.positions_copy = list()
-        infile.close()
-
         # Passed to True at the end of an episode
         self.episode_over = False
         self.gui = gui
         self.simulation_manager = SimulationManager()
         self.counter = 0
         self.number_of_step_in_episode = 0
-        self.last_step_reward = 0
+        self.foot_step_number = 0
+        self.feet_ahead = None
         self._setupScene()
 
         obs_space = np.inf * np.ones([OBS_DIM])
@@ -181,10 +176,9 @@ class NaoEnv(gym.Env):
         self.previous_x = 0
         self.counter = 0
         self.number_of_step_in_episode = 0
-        self.last_step_reward = 0
+        self.foot_step_number = 0
+        self.feet_ahead = None
         self._resetScene()
-
-        self.positions_copy = self.positions.copy()
 
         obs, _ = self._getState()
         return obs
@@ -216,23 +210,16 @@ class NaoEnv(gym.Env):
         """
         Sets velocities on the robot joints
         """
-        if len(self.positions_copy) == 0:
-            self.episode_over = True
-            return
 
-        self.nao.setAngles(self.controlled_joints, self.positions_copy[0], 1.0)
-        time.sleep(0.002)
-        self.positions_copy.pop(0)
-
-        # for joint, n_velocity in zip(joints, n_velocities):
-        #     velocity = n_velocity * self.nao.joint_dict[joint].getMaxVelocity()
-        #     pybullet.setJointMotorControl2(
-        #         self.nao.robot_model,
-        #         self.nao.joint_dict[joint].getIndex(),
-        #         pybullet.VELOCITY_CONTROL,
-        #         targetVelocity=velocity,
-        #         force=self.nao.joint_dict[joint].getMaxEffort(),
-        #         physicsClientId=self.client)
+        for joint, n_velocity in zip(joints, n_velocities):
+            velocity = n_velocity * self.nao.joint_dict[joint].getMaxVelocity()
+            pybullet.setJointMotorControl2(
+                self.nao.robot_model,
+                self.nao.joint_dict[joint].getIndex(),
+                pybullet.VELOCITY_CONTROL,
+                targetVelocity=velocity,
+                force=self.nao.joint_dict[joint].getMaxEffort(),
+                physicsClientId=self.client)
 
     def _getJointState(self, joint_name):
         """
@@ -328,8 +315,20 @@ class NaoEnv(gym.Env):
             [x, y, z],
             dtype=np.float32
         )
-
-        self.counter = self.number_of_step_in_episode / 3
+        feet_pos = None
+        if r_ankle_state[0] >= l_ankle_state[0] and\
+                feet_contact[0] == 0:
+            feet_pos = "Right"
+        if l_ankle_state[0] > r_ankle_state[0] and\
+                feet_contact[1] == 0:
+            feet_pos = "Left"
+        if self.feet_ahead is None:
+            self.feet_ahead = feet_pos
+        if self.feet_ahead is not None and feet_pos is not None and\
+                self.feet_ahead is not feet_pos:
+            self.foot_step_number += 1
+            self.feet_ahead = feet_pos
+        self.counter = self.number_of_step_in_episode / 1000
         counter = np.array(
             [self.counter],
             dtype=np.float32
@@ -338,6 +337,7 @@ class NaoEnv(gym.Env):
         # Fill the observation
         obs = np.concatenate(
             [counter] +
+            # [np.array([self.foot_step_number], dtype=np.float32)] +
             [joint_position_list] +
             [joint_velocity_list] +
             [torso_state] +
@@ -349,23 +349,34 @@ class NaoEnv(gym.Env):
         # To be passed to True when the episode is over
         if torso_state[2] < 0.27 or torso_state[0] > 14:
             if torso_state[2] < 0.27:
-                reward += -100
+                reward += -20
             if torso_state[0] > 14:
-                reward += 100
+                reward += 10
+            if torso_state[0] <= 0.2:
+                reward += -10
+            else:
+                reward += np.clip(torso_state[0] - 10, -10, 5)
+            pos_feet_to_evaluate = 0
+            if l_ankle_state[0] >= r_ankle_state[0]:
+                pos_feet_to_evaluate = r_ankle_state[0]
+            else:
+                pos_feet_to_evaluate = l_ankle_state[0]
+            if pos_feet_to_evaluate <= 0.2:
+                reward += -10
+            else:
+                reward += np.clip(pos_feet_to_evaluate - 10, -10, 5)
+            # if self.foot_step_number < 2:
+            #     reward += -10
+            # else:
+            #     reward += np.clip(np.log(self.foot_step_number), -2, 2)
+            if self.counter < 0 or torso_state[0] <= 0.2:
+                reward += -10
+            else:
+                reward += np.clip(self.counter - 10, -10, 5)
             self.episode_over = True
-            # add reward if ankles moved
-            reward += 0.00001 * l_ankle_state[0] + 0.00001 * r_ankle_state[0]
         # Compute the reward
         # delta x : speed
-        reward += (torso_state[0] - self.previous_x) * 100
-
-        # if self.counter - self.last_step_reward > 200:
-        #     self.last_step_reward = self.counter
-        #     if l_ankle_state[3] >= 0:
-        #         reward += 0.00001 * l_ankle_state[3]
-        #     if r_ankle_state[3] >= 0:
-        #         reward += 0.00001 * r_ankle_state[3]
-
+        reward += (torso_state[0] - self.previous_x)
         self.previous_x = torso_state[0]
         return obs, reward
 
@@ -419,49 +430,6 @@ class NaoEnv(gym.Env):
         """
         self.simulation_manager.stopSimulation(self.client)
 
-    def walking_expert(self, _obs):
-        """
-        Generates actions accordingly to the obs
-        """
-        actions = list()
-
-        for name in self.controlled_joints:
-            actions.append(
-                self.nao.getAnglesVelocity(name) /
-                self.nao.joint_dict[name].getMaxVelocity())
-
-        return actions
-
-
-from stable_baselines.gail import generate_expert_traj
-
-def main():
-    env = NaoEnv(gui=True)
-
-    generate_expert_traj(
-        env.walking_expert,
-        'models_nao/walk_expert_v2',
-        env,
-        n_episodes=20)
-
-if __name__ == "__main__":
-    main()
-# def main():
-#     env = NaoEnv(gui=True)
-#
-#     # Test observation space and action space sampling
-#     env.observation_space.sample()
-#     action = env.action_space.sample()
-#
-#     # Test resetting environment
-#     state = env.reset()
-#
-#     # Test computing a step
-#     next_state, reward, done, _ = env.step(action.tolist())
-#
-#     # Terminate env
-#     env._termination()
-#
-#
-# if __name__ == "__main__":
-#     main()
+    def close(self):
+        self._termination()
+    
